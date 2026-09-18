@@ -57,5 +57,55 @@
 
 - p56. Softmaxは「高い値は極端に高くする」という性質がある。例えば、Softmax([100, 200, 300])=[0.0000, 3.7835e-44, 1.0000e+00]となり、300がほぼ1になる。逆に類似度がまあまあかなくらいのものは全て0になる。
 - p56. Softmaxの飽和：飽和とは入力を変化させても出力が変わらないこと。上に書いたような性質により、このようなことが起こり、学習に悪影響がある。そのため、スケーリング(softmaxの中の分母であるルートd)が必要。
+- p86. AttentionにおけるCausal Maskの作り方。縦をquery, 横をkeyとした場合、右上の三角成分が未来に相当する情報であるため、-infとすることで、softmax出力を0にできる。実装は以下のようにtorch.triu(triangle upper) or torch.tril(triangle lower)を使って行う
+    ```python
+    # x: (Batch, Context length, Embed dim)
+    # Q: (B, C, Key dim)
+    # K: (B, C, K)
+    # V: (B, E, E)
+    scores = torch.matmul(Q, K.transpose(-2, -1))
+    scores /= self.key_dim ** 0.5
+
+    # trilでやる場合
+    mask = torch.tril(
+        torch.ones(C, C)
+    )
+    scores = scores.masked_fill(
+        mask == 0, float('-inf')
+    )
+
+    # triuでやる場合
+    mask = torch.triu(
+        torch.ones(C, C),
+        diagonal=1
+    )
+    scores = scores.masked_fill(
+        mask, float('-inf')
+    )
+
+    weights = F.softmax(scores, dim=-1)
+    output = torch.matmul(weights, V)
+    ```
+- p88. Valueが最も重いので低ランク行列で表す。GPT-3ではembed_dim=12288, key_dim=128。つまり一般的なLLMではAttentionのVが最も大きい。12288x12288=約1.5億。なので行列分解で低ランク近似。すると、式変形によりAttention内部では完全にkey_dim=128のみの行列計算で表すことができ、その出力ベクトル output: (B, C, K)に対してW_o: (K, E)による線形変換を行えば、元のAttentionと同様に見做せる。
+- p96. Q, K, Vの重みは分けずとも1つのLinearでより効率的にかける
+    ```python
+    Q = W_q(x)
+    K = W_k(x)
+    V = W_v(x)
+
+    # 以下のようにもっと効率化できる
+    W = nn.Linear(E, 3*H*D, bias=False)
+    Y = W(x) # (B, C, 3*H*D)
+    Q, K, V = Y.chunk(3, dim=2) # (B, C, H*D)が３つ
+    ```
+- p96. Multi-head Attentionはhead分だけ並列にAttentionを実行する仕組み。重みの初期値が異なるため、headごとに異なる特徴を学習するように収束する。仕組み: これまでのsingle headの計算ではkey_dimを自由に設定してきた。しかし、これをH*D(ヘッド数*ヘッド次元)とし、headごとに分けて計算する。(Dのヘッド次元がこれまでのkey_dimに該当し、それをH分だけ並列に行うイメージ。)ただし、ここは行列計算の行ごとに独立して計算するという特徴があるので、headごとに別々な重み(Linear)を定義する必要はなく、「共通のLinearで処理→viewで行列の形状を変化」とすることで実現している。
+- p98. transpose, permuteなどの処理をするとテンソルの要素位置が不連続になる。view操作はメモリ配置は連続していることを前提とするため、viewの前にcontiguous()で整える。
+- p106. FFNはいろいろな種類があるが、ここでは、Sequential(Linear, GELU, Linear, Dropout)を採用。中間表現の次元数は自由に設定できるが、一般的に「4倍」が最も性能が高いとされる。
+- p107. Multi-head Attentionにおけるhead_dimは何にでも指定することはできるが、(embed_dim // n_head)の値を指定するのが一般的。これによりMultiHeadAttentionクラスが持つパラメタ数が一定に保たれる。
+- p110. 重み共有: 最初のnn.Embedding(vocab_size, embed_dim)と、最後のnn.Linear(embed_dim, vocab_size)はやっていることが逆。そこで、これらは重みを共有する。具体的には`self.embed.weight = self.unembed.weight`の1行。
+- p110. GPT2の初期値は、平均0、標準偏差0.02で行われる。
+
+## 3章 CodeBot 学習
+
 
 
