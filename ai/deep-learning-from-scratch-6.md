@@ -141,3 +141,53 @@
 - p236. RoPEとKV cacheを一緒に使う場合、位置エンコーディングの扱いには注意が必要。KV cacheを使うなら毎回1tokenしか入力されないので、RoPEで今何トークン目かを表す引数offsetが必要になる。
 
 
+# 6章 StoryBot 学習
+
+- p237. Momentum: SGDは層ごとに勾配のスケールが大きく異なるため学習が安定しないという問題点がある。そこで、勾配の指数移動平均を扱うことする。（アイデアとしては、勾配を毎回完全に新しく算出するのではなく、過去のステップも考慮して計算しようというもの）
+- p238. Adam. 勾配の１次モーメントと２次モーメントを追跡し、パラメタごとに学習率を自動調整する。勾配の変動が大きいパラメタは小さく、勾配の変動が小さいパラメタは大きく更新する。（Adaptive moment estimation）
+- p240. AdamにL2正則化を加えたものをAdamWという。通常のL2正則化ではLossにlambda/2*|theta^2|を加えれば良いが、Adamの場合は更新式が複雑なので、それではうまく正則化が適用されない。そこで、損失に加えるのではなく、Adamの計算時に正則化項を最後に追加する。
+- p246. 学習率スケジューリング：最初は学習率を徐々に上げ（warmup）、その後徐々に学習率を下げる（Annealing: アニーリング）。これにより学習が安定する。
+- p247. アニーリングの種類
+    - Cosine Annealing: Cosine関数に従って滑らかに減衰させる手法。数式がやや複雑で、最小学習率の設定が必要。
+    - Linear decay-to-zero (D2Z)：シンプルな方法。学習率を線型的にゼロまで減衰させる。最小学習率の設定も不要。
+- p249. `from torch.optim.lr_scheduler import CosineAnnealingLR`のように呼び出せる。ただしD2Zのような新しい手法は未登録。
+- p249. 混合精度：何も指定しなければFP32。FP16, BF16に変える事で効率化。
+    - FP16: 指数部5bit, 仮数部10bit, 符号1bit。指数部が小さいので扱える範囲が狭いが、仮数部が大きいので有効数字が大きく細かな値まで扱える。
+    - BF16: 指数部8bit, 仮数部7bit, 符号1bit。指数部が大きいので扱える範囲が広いが、仮数部が小さいので有効数字が小さく、大雑把な値しか扱えない。
+    - オーバーフローやアンダーフローがおきやすいのはFP16。機械学習では扱える数字の範囲が重要なのでBF16の方が頻繁に利用される。ただし、BF16でも桁落ちの問題は残る。そこで、精度を使い分ける混合精度が利用される。
+    ```python
+    with torch.autocast(device_type=device, dtype=torch.bfloat16):
+        b = a @ a # 行列積はBF16
+        c = a.sum() # 累積はFP32
+    ```
+    - 実際に使うときは、logits, lossの算出だけautocastで囲む。
+    ```python
+    for x, y in dataloader:
+        optimizer.zero_grad()
+        
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            logits = model(x)
+            loss = loss_fn(logits, y)
+        
+        loss.backward()
+        optimizer.step()
+    ```
+- p257. 勾配クリッピング：勾配が大きくなりすぎた場合、向きはそのままに大きさをクリップする。
+    ```python
+    grad_clip = 1.0
+    loss.backward()
+    torch.nn.util.clip_grad_norm_(model.parameters(), grad_clip)
+    optimizer.step()
+    ```
+- p260. 事前学習の流れ
+    1. train_data, val_dataは事前にtokenizeしておき、np.memmapを使って順次呼び出す。
+    2. lr_schedulerから学習率を取得
+    3. batch分だけデータを取得。
+    4. torch.autocastを使ってlogits, lossを算出。
+    5. loss.backward()
+    6. clip_grad_norm_()
+    7. optimizer.step()
+    8. 固定iterationごとにモデルを保存。また、モデルを評価。
+- p264. 評価：色々あるが、LLM-as-a-Judgeを使う場合、10件くらいのサンプルを生成し、それぞれで評価し、平均スコア+ｰ標準偏差で表すことが多い。
+- p268. DPOの式変形：人間の好みをLLMに学習させたいと考えた時、選好データ（Preference Data）を使ってBradley-Terryモデルを仮定することで、y_w, y_lの報酬の差を求めれば学習できることがわかる。学習方法には色々あるが、DPOでは式変形により報酬計算の過程で登場した正則化項Zが消せることが示されている。これにより、報酬から方策を導けるし、方策から報酬を導ける。
+- p274. DPOのLossを算出するときは、正解応答と失敗応答それぞれにおいてprompt+response+paddingで固定長のidsを作る。それをモデルに入力し、全体のlog_probabilityを算出する。lossとして必要なのはresponse箇所だけなので、そこだけを抽出するmaskを作り、正解とするtokenに対するlog_probを抽出して和を取る。これで正解応答に対するlogprobsと、失敗応答に対するlogprobsが算出できたので、DPOの損失を計算できる。
