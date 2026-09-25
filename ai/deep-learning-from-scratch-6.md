@@ -199,3 +199,15 @@
 - p285. 特殊トークンは自由に追加できる。Harmony形（gpt-ossで採用されている）では、<|channel|>, <|message|>などが使われている。
 - p286. tokenizeの方法は他にも色々ある。SentencePieceというサブワード分割ライブラリは、2018年に開発され、LlamaやT5などで使われている。WordPieceはBERTで採用されたもので、BPEとはマージ方法が異なる。
 
+# 8章 WebBot Model
+
+- p287. スケーリング則より、LLMの学習に必要な計算量はC=6ND （Nはモデルのパラメタ数、Dは学習データのトークン量）で見積もれる。2N FLOPがforwardにかかる計算量で、4N Flopがbackwardにかかる計算量。
+- p288. OpenAIの2020年ごろの研究では「計算予算が増えたらモデルを大きくすべき」という結論が出ていたが、のちのDeepMindの研究（２０２２）では「計算予算を増やすときはモデルサイズだけではなくデータ量もふやすべき」と結論づけられた。（Chinchilla則）目安として、「パラメタ数の20倍のトークン数」とされている。2.6B tokens規模のデータを用意したのならば、2.6B/20=130Mパラメタ規模のモデルサイズが適切である。Chinchilla則は1epoch想定だが、4epoch程度までなら性能劣化がないことが知られている。
+- p288. Chincilla則は学習における話。推論時はモデルサイズが大きいほどコストが高くなるので、Chinchilla則よりも小規模なモデルにする方が経済的。実際にLlama3 70Bは215 token/parameterなので、Chinchilla則の約10倍と言える。
+- p289. Flash Attention: 通常のAttentionはSRAMもDRAMも使うため、転送速度がボトルネックになる。そこで、softmax計算時にオンラインsoftmaxを使うことでSRAMで完結するように工夫する。PyTorchではF.scaled_dot_product_attentionで利用できる。
+- p289. GQA: Grouped Query Attention: Multi head Attentionにおいて、キーとバリューのヘッドを共有する。これによりKVに対するメモリ使用量を半減することができる。PyTorchでは、`F.scaled_dot_product_attention(q, k, v is_causal=True, enable_gqa=True)`で利用できる。
+- p291. MoE: Mixture of Experts: FFNを複数用意し、どれを使うかを小規模なRouterで選択させる。学習時に選択されなかったFFNには勾配が流れないので、補助損失（Auxiliary loss）を利用して、バランスよくFFNが利用されるように学習させる。
+- p292. PyTorchは動的に計算グラフを構築するため処理に時間がかかるが、torch.compileを利用することで、JITコンパイル機能（PyTorch2.0から導入された機能。Just in Time）でオーバーヘッドを解消できる。`torch.compile(model)`
+- p292. 事前学習では固定長で学習される。しかし、実際に使いたいときはそれを超えて利用したいケースがある。
+    - Position Interpolation (PI): 位置インデックスを訓練時の範囲に収まるようにスケールダウンする方法。
+    - YaRN: PIを改良した方法で、高周波成分をスケーリングせず、低周波のみをスケーリングする。
