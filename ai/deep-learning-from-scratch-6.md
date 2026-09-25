@@ -191,3 +191,11 @@
 - p264. 評価：色々あるが、LLM-as-a-Judgeを使う場合、10件くらいのサンプルを生成し、それぞれで評価し、平均スコア+ｰ標準偏差で表すことが多い。
 - p268. DPOの式変形：人間の好みをLLMに学習させたいと考えた時、選好データ（Preference Data）を使ってBradley-Terryモデルを仮定することで、y_w, y_lの報酬の差を求めれば学習できることがわかる。学習方法には色々あるが、DPOでは式変形により報酬計算の過程で登場した正則化項Zが消せることが示されている。これにより、報酬から方策を導けるし、方策から報酬を導ける。
 - p274. DPOのLossを算出するときは、正解応答と失敗応答それぞれにおいてprompt+response+paddingで固定長のidsを作る。それをモデルに入力し、全体のlog_probabilityを算出する。lossとして必要なのはresponse箇所だけなので、そこだけを抽出するmaskを作り、正解とするtokenに対するlog_probを抽出して和を取る。これで正解応答に対するlogprobsと、失敗応答に対するlogprobsが算出できたので、DPOの損失を計算できる。
+
+
+# 7章 WebBot Tokenizer
+
+- p284. 高速化のためには計測が大事。`python -m cProfile -s cumulative sample.py > profile.txt`で最も時間がかかっている処理を特定し、Rust/C++で書き直すなどで高速化する。huggingfaceのtokenizersはRustで書かれているので早い。
+- p285. 特殊トークンは自由に追加できる。Harmony形（gpt-ossで採用されている）では、<|channel|>, <|message|>などが使われている。
+- p286. tokenizeの方法は他にも色々ある。SentencePieceというサブワード分割ライブラリは、2018年に開発され、LlamaやT5などで使われている。WordPieceはBERTで採用されたもので、BPEとはマージ方法が異なる。
+
