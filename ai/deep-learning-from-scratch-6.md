@@ -211,3 +211,32 @@
 - p292. 事前学習では固定長で学習される。しかし、実際に使いたいときはそれを超えて利用したいケースがある。
     - Position Interpolation (PI): 位置インデックスを訓練時の範囲に収まるようにスケールダウンする方法。
     - YaRN: PIを改良した方法で、高周波成分をスケーリングせず、低周波のみをスケーリングする。
+
+# 9章 WebBot 学習
+
+- p295. 勾配蓄積（Gradient Accumulation）: バッチサイズを大きくしたいが、GPUメモリを大きくできない場合、複数回forward/backwardを行い、まとめて更新する。
+    ```python
+    accumulation_step = 4
+    optimizer.zero_grad()
+
+    for i, (inputs, targets) in enumelate(dataloader):
+        logits = model(inputs)
+        loss = F.cross_entropy(logits, targets) / accumulation_steps
+
+        loss.backward()
+        if (i+1) % accumulation_steps == 0:
+            optimizer.step()
+            optimizer.zero_grad()
+    ```
+    - zero_gradを呼ぶまで勾配はgradに蓄積される。
+    - accumulation_stepsでわるのを忘れない。
+- p297. 分散学習：データ並列とモデル並列がある。データ並列ではそれぞれで小規模なバッチを実行（モデルは全てのGPUにコピー）し、その後全て集約して全て更新する。（all reduce）
+    - プロセスとランク：データ並列では複数のプロセスが強調して１モデルを学習する.１プロセスは１GPU。ランクという番号で識別。
+    - PyTorchではDistributedDataParallel (DDP)を利用。
+- 学習時にGPUに乗るデータ：モデルパラメタ、勾配、オプティマイザ状態。
+- p299. ZeRO (Zero Redundancy Optimizer): データ並列時に上３つを全て載せるのは冗長。そこで、ZeROではこれらを別々のGPUに載せて、必要なときだけ収集する。
+    - ZeROには3種類ある。ZeRO-1, ZeRO-2, ZeRO-3。どのように３つを保持するかで別れる。
+    - 最もメモリを食っているのはオプティマイザ状態。
+    - 実装はMicrosoft DeepSpeedライブラリで利用可能。PyTorchでは、torch.distributed.fsdpパッケージで利用可能。
+- p300. Muonオプティマイザ（Momentum Orthogonalization by Newton-Schulz）: AdamWよりもメモリ消費が少なく収束も早い最適化手法。AdamWでは２つのモーメントをfp32で保持しなければならなかった。そこで、勾配の１次モーメントを行列で計算し直行化してからパラメタ更新を行う。さらに２次モーメントも不要なのでメモリ消費を抑えられる。
+- p302. Weights & Biases (W&B)でリアルタイムにメトリクスを管理可能。
